@@ -235,6 +235,31 @@ if st.button("🔀 Merge All Files Now", type="primary"):
         subset=[c for c in combined.columns if c != "_source"]
     )
 
+    # ── DATA CLEANING ──────────────────────────────────────────
+    # 1. Fix date columns: strip time, remove 1900 epoch artifacts
+    for col in combined.columns:
+        try:
+            if pd.api.types.is_datetime64_any_dtype(combined[col]):
+                combined[col] = combined[col].where(combined[col].dt.year > 1900, other=pd.NaT)
+                combined[col] = combined[col].dt.strftime('%d-%m-%Y').where(combined[col].notna(), other='')
+            elif combined[col].dtype == object:
+                converted = pd.to_datetime(combined[col], errors='coerce', dayfirst=True)
+                if converted.notna().sum() > len(combined) * 0.1:
+                    converted = converted.where(converted.dt.year > 1900, other=pd.NaT)
+                    combined[col] = converted.dt.strftime('%d-%m-%Y').where(converted.notna(), other='')
+        except Exception:
+            pass
+
+    # 2. Drop columns entirely empty or all blank/nan strings
+    combined = combined.dropna(axis=1, how='all')
+    mask = (combined.astype(str).isin(['', 'nan', 'None', 'NaT', 'NaN'])).all()
+    combined = combined.loc[:, ~mask]
+
+    # 3. Drop entirely empty rows
+    data_cols = [c for c in combined.columns if c != "_source"]
+    combined = combined.dropna(subset=data_cols, how='all')
+    # ───────────────────────────────────────────────────────────
+
     # Find APEX ID conflicts
     conflict_ids = combined[
         combined.duplicated(subset=["APEX ID"], keep=False)
